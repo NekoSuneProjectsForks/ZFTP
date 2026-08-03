@@ -200,16 +200,17 @@ jobs:
           files: dist/ZFTP-Setup-*.exe
 
   detect-runners:
-    # Our own self-hosted runners (org-level, "Default" group) are preferred
-    # for the Linux build when they're online - nekorpi1 (Linux ARM64) and
-    # vmi555990 (Linux X64). GitHub Actions has no native "try self-hosted,
-    # else hosted": a job queued for an offline self-hosted runner just waits
-    # forever (timeout-minutes only starts counting once a runner picks the
-    # job up, not while it's queued), so this job checks each runner's live
-    # status via the API first and hands the actual runs-on labels down to
-    # build-linux through its matrix. Runs in parallel with build-and-release
-    # (no dependency on it) since it only needs to know runner status, not
-    # the version being built.
+    # Any online self-hosted Linux runner (X64 or ARM64 - currently nekorpi1
+    # and vmi555990, but matched by OS+arch labels rather than by name, so
+    # adding/renaming/replacing runners later needs no workflow edit) is
+    # preferred for the Linux build. GitHub Actions has no native "try
+    # self-hosted, else hosted": a job queued for an offline self-hosted
+    # runner just waits forever (timeout-minutes only starts counting once a
+    # runner picks the job up, not while it's queued), so this job checks
+    # runner status via the API first and hands the actual runs-on labels
+    # down to build-linux through its matrix. Runs in parallel with
+    # build-and-release (no dependency on it) since it only needs to know
+    # runner status, not the version being built.
     #
     # Requires a repo secret RUNNER_STATUS_PAT: a PAT (classic with the "repo"
     # scope covering org runner read access, or fine-grained with the org's
@@ -236,12 +237,14 @@ jobs:
                 "User-Agent"    = "ZFTP-CI"
               }
               $resp = Invoke-RestMethod -Uri "https://api.github.com/orgs/${{ github.repository_owner }}/actions/runners?per_page=100" -Headers $headers
-              $vmi  = $resp.runners | Where-Object { $_.name -eq "vmi555990" }
-              $neko = $resp.runners | Where-Object { $_.name -eq "nekorpi1" }
               # "busy" (mid-job) is still fine to target - it'll just run next.
               # Only "offline" means the job would queue forever - fall back then.
-              if ($vmi -and $vmi.status -eq "online")  { $x64Runner  = '["self-hosted","Linux","X64"]' }
-              if ($neko -and $neko.status -eq "online") { $arm64Runner = '["self-hosted","Linux","ARM64"]' }
+              $onlineLinux = $resp.runners | Where-Object { $_.os -eq "linux" -and $_.status -eq "online" }
+              $x64  = $onlineLinux | Where-Object { $_.labels.name -contains "X64" }   | Select-Object -First 1
+              $arm64 = $onlineLinux | Where-Object { $_.labels.name -contains "ARM64" } | Select-Object -First 1
+              if ($x64)  { $x64Runner  = '["self-hosted","Linux","X64"]' }
+              if ($arm64) { $arm64Runner = '["self-hosted","Linux","ARM64"]' }
+              Write-Output "Online self-hosted Linux runners: $($onlineLinux.name -join ', ')"
             } catch {
               Write-Warning "Couldn't query self-hosted runner status ($_) - falling back to GitHub-hosted runners."
             }
