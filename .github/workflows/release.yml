@@ -86,6 +86,30 @@ jobs:
             throw "WinFsp install failed with exit code $($proc.ExitCode)"
           }
 
+      # tools\rclone.exe is a committed binary (see ZFTP.App.csproj) so local dev
+      # builds always have something to publish - this overwrites it with
+      # whatever rclone has released most recently right before we build, so
+      # every shipped installer bundles the latest rclone without anyone having
+      # to remember to manually re-download and commit a new copy.
+      - name: Update bundled rclone
+        shell: pwsh
+        run: |
+          $headers = @{ "User-Agent" = "ZFTP-CI" }
+          if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" }
+          $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/rclone/rclone/releases/latest" -Headers $headers
+          $asset = $rel.assets | Where-Object { $_.name -match '^rclone-v.*-windows-amd64\.zip$' } | Select-Object -First 1
+          if (-not $asset) { throw "Could not find a rclone windows-amd64 .zip asset in the latest release." }
+          $zip = "$env:RUNNER_TEMP\rclone.zip"
+          $extractDir = "$env:RUNNER_TEMP\rclone-extract"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $extractDir -Force
+          $exe = Get-ChildItem -Path $extractDir -Filter rclone.exe -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "rclone.exe not found inside the downloaded rclone archive." }
+          Copy-Item $exe.FullName "src\ZFTP.App\tools\rclone.exe" -Force
+          Write-Output "Bundled rclone updated to $($rel.tag_name)"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Restore
         run: dotnet restore ZFTP.sln
 
@@ -175,18 +199,79 @@ jobs:
           body_path: changelog.md
           files: dist/ZFTP-Setup-*.exe
 
+  detect-runners:
+    # Our own self-hosted runners (org-level, "Default" group) are preferred
+    # for the Linux build when they're online - nekorpi1 (Linux ARM64) and
+    # vmi555990 (Linux X64). GitHub Actions has no native "try self-hosted,
+    # else hosted": a job queued for an offline self-hosted runner just waits
+    # forever (timeout-minutes only starts counting once a runner picks the
+    # job up, not while it's queued), so this job checks each runner's live
+    # status via the API first and hands the actual runs-on labels down to
+    # build-linux through its matrix. Runs in parallel with build-and-release
+    # (no dependency on it) since it only needs to know runner status, not
+    # the version being built.
+    #
+    # Requires a repo secret RUNNER_STATUS_PAT: a PAT (classic with the "repo"
+    # scope covering org runner read access, or fine-grained with the org's
+    # "Self-hosted runners: Read" permission) - the default GITHUB_TOKEN can't
+    # call the org runners API. If the secret is missing or the call fails,
+    # this falls back to GitHub-hosted runners for both arches rather than
+    # failing the whole release.
+    runs-on: ubuntu-latest
+    outputs:
+      x64_runner: ${{ steps.pick.outputs.x64_runner }}
+      arm64_runner: ${{ steps.pick.outputs.arm64_runner }}
+    steps:
+      - name: Check self-hosted runner status
+        id: pick
+        shell: pwsh
+        run: |
+          $x64Runner = '["ubuntu-latest"]'
+          $arm64Runner = '["ubuntu-latest"]'
+          if ($env:RUNNER_STATUS_PAT) {
+            try {
+              $headers = @{
+                "Authorization" = "Bearer $env:RUNNER_STATUS_PAT"
+                "Accept"        = "application/vnd.github+json"
+                "User-Agent"    = "ZFTP-CI"
+              }
+              $resp = Invoke-RestMethod -Uri "https://api.github.com/orgs/${{ github.repository_owner }}/actions/runners?per_page=100" -Headers $headers
+              $vmi  = $resp.runners | Where-Object { $_.name -eq "vmi555990" }
+              $neko = $resp.runners | Where-Object { $_.name -eq "nekorpi1" }
+              # "busy" (mid-job) is still fine to target - it'll just run next.
+              # Only "offline" means the job would queue forever - fall back then.
+              if ($vmi -and $vmi.status -eq "online")  { $x64Runner  = '["self-hosted","Linux","X64"]' }
+              if ($neko -and $neko.status -eq "online") { $arm64Runner = '["self-hosted","Linux","ARM64"]' }
+            } catch {
+              Write-Warning "Couldn't query self-hosted runner status ($_) - falling back to GitHub-hosted runners."
+            }
+          } else {
+            Write-Warning "RUNNER_STATUS_PAT secret not set - falling back to GitHub-hosted runners."
+          }
+          Write-Output "x64 runner: $x64Runner"
+          Write-Output "arm64 runner: $arm64Runner"
+          "x64_runner=$x64Runner" >> $env:GITHUB_OUTPUT
+          "arm64_runner=$arm64Runner" >> $env:GITHUB_OUTPUT
+        env:
+          RUNNER_STATUS_PAT: ${{ secrets.RUNNER_STATUS_PAT }}
+
   build-linux:
     # Runs after the Windows job so the GitHub Release already exists - this
     # job just adds Linux assets to it. A tarball (always works) plus an
     # AppImage (needs an actual Linux host to run appimagetool - not possible
     # from a Windows machine, which is exactly why this lives in CI). arm64 is
-    # cross-compiled from the same x64 runner (framework-dependent publish
-    # needs no arm64 hardware to build, only to run).
-    needs: build-and-release
+    # cross-compiled when running on a hosted x64 runner (framework-dependent
+    # publish needs no arm64 hardware to build, only to run) - not needed when
+    # nekorpi1, an actual ARM64 box, picks up that leg instead.
+    needs: [build-and-release, detect-runners]
     strategy:
       matrix:
-        rid: [linux-x64, linux-arm64]
-    runs-on: ubuntu-latest
+        include:
+          - rid: linux-x64
+            runner: ${{ needs.detect-runners.outputs.x64_runner }}
+          - rid: linux-arm64
+            runner: ${{ needs.detect-runners.outputs.arm64_runner }}
+    runs-on: ${{ fromJson(matrix.runner) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -198,9 +283,13 @@ jobs:
 
       - name: Build tarball
         run: installer/linux/build-tarball.sh "${{ needs.build-and-release.outputs.version }}" "${{ matrix.rid }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # download-rclone.sh: raises the GitHub API rate limit
 
       - name: Build AppImage
         run: installer/linux/build-appimage.sh "${{ needs.build-and-release.outputs.version }}" "${{ matrix.rid }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Linux assets to the release
         uses: softprops/action-gh-release@v2
@@ -212,3 +301,33 @@ jobs:
             dist/ZFTP-*-linux-*.tar.gz
             dist/ZFTP-*-x86_64.AppImage
             dist/ZFTP-*-aarch64.AppImage
+
+  build-macos:
+    # Runs after the Windows job so the GitHub Release already exists - this
+    # job just adds the macOS asset to it. Needs an actual macOS host to
+    # publish/archive for osx-arm64 (Apple Silicon - the only Mac target
+    # ci.yml currently builds/tests). Unsigned/unnotarized for now - see the
+    # note in installer/mac/build-tarball.sh.
+    needs: build-and-release
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build tarball
+        run: installer/mac/build-tarball.sh "${{ needs.build-and-release.outputs.version }}" osx-arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # download-rclone.sh: raises the GitHub API rate limit
+
+      - name: Upload macOS asset to the release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.build-and-release.outputs.tag_name }}
+          files: dist/ZFTP-*-osx-arm64.tar.gz

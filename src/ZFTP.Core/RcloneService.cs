@@ -40,7 +40,9 @@ public static class RcloneService
     public static bool IsRcloneProvider(ProviderType t) => t != ProviderType.Sftp;
 
     public static bool RequiresOAuth(ProviderType t) =>
-        t is ProviderType.GoogleDrive or ProviderType.Dropbox or ProviderType.OneDrive or ProviderType.Box;
+        t is ProviderType.GoogleDrive or ProviderType.Dropbox or ProviderType.OneDrive or ProviderType.Box
+          or ProviderType.PCloud or ProviderType.Yandex or ProviderType.PremiumizeMe or ProviderType.PutIo
+          or ProviderType.HiDrive or ProviderType.Jottacloud or ProviderType.GoogleCloudStorage;
 
     private static string RcloneType(ProviderType t) => t switch
     {
@@ -59,8 +61,49 @@ public static class RcloneService
         ProviderType.Azure => "azureblob",
         ProviderType.Mega => "mega",
         ProviderType.Proton => "protondrive",
+        ProviderType.PCloud => "pcloud",
+        ProviderType.Yandex => "yandex",
+        ProviderType.PremiumizeMe => "premiumizeme",
+        ProviderType.PutIo => "putio",
+        ProviderType.HiDrive => "hidrive",
+        ProviderType.Jottacloud => "jottacloud",
+        ProviderType.GoogleCloudStorage => "gcs",
+        ProviderType.Seafile => "seafile",
+        ProviderType.Storj => "storj",
+        ProviderType.Swift => "swift",
+        ProviderType.Koofr => "koofr",
+        ProviderType.Http => "http",
         _ => "ftp",
     };
+
+    /// <summary>rclone's webdav "vendor" value for a profile's chosen flavour. This is
+    /// what switches on Nextcloud/ownCloud-specific quota (PROPFIND) parsing and
+    /// upload/chunking quirks in rclone's webdav backend - left at "other" (the old
+    /// hardcoded default) those servers report wrong free space and can fail uploads.</summary>
+    private static string WebDavVendorName(WebDavVendor v) => v switch
+    {
+        WebDavVendor.Nextcloud => "nextcloud",
+        WebDavVendor.OwnCloud => "owncloud",
+        WebDavVendor.Sharepoint => "sharepoint",
+        _ => "other",
+    };
+
+    /// <summary>The URL to hand rclone for a WebDAV profile. Nextcloud/ownCloud both
+    /// expose the account's actual DAV root (where quota + uploads work correctly)
+    /// at "/remote.php/dav/files/{user}/" - if the user just entered the server's
+    /// base URL (or the legacy "/remote.php/webdav" alias) we append it ourselves so
+    /// they don't have to know that path convention.</summary>
+    private static string WebDavUrl(ConnectionProfile p)
+    {
+        var url = (p.Url ?? "").Trim();
+        if (p.WebDavVendor is WebDavVendor.Nextcloud or WebDavVendor.OwnCloud
+            && !Regex.IsMatch(url, @"/remote\.php/dav(/|$)", RegexOptions.IgnoreCase))
+        {
+            url = Regex.Replace(url, @"/remote\.php/webdav/?$", "", RegexOptions.IgnoreCase);
+            url = url.TrimEnd('/') + "/remote.php/dav/files/" + Uri.EscapeDataString(p.Username) + "/";
+        }
+        return url;
+    }
 
     /// <summary>Backends whose path is rooted at a bucket/share/container rather than
     /// the remote itself (like S3). Maps a profile to that top-level name.</summary>
@@ -70,6 +113,8 @@ public static class RcloneService
         ProviderType.Smb => p.SmbShare,
         ProviderType.B2 => p.B2Bucket,
         ProviderType.Azure => p.AzureContainer,
+        ProviderType.GoogleCloudStorage => p.GcsBucket,
+        ProviderType.Swift => p.SwiftContainer,
         _ => null,
     };
 
@@ -122,7 +167,7 @@ public static class RcloneService
                 break;
 
             case ProviderType.WebDav:
-                args.AddRange(new[] { "url", p.Url, "vendor", "other", "user", p.Username, "pass", p.Password });
+                args.AddRange(new[] { "url", WebDavUrl(p), "vendor", WebDavVendorName(p.WebDavVendor), "user", p.Username, "pass", p.Password });
                 break;
 
             case ProviderType.S3:
@@ -158,6 +203,33 @@ public static class RcloneService
                 args.AddRange(new[] { "username", p.Username, "password", p.Password });
                 if (!string.IsNullOrWhiteSpace(p.ProtonTwoFactorCode)) args.AddRange(new[] { "2fa", p.ProtonTwoFactorCode.Trim() });
                 if (!string.IsNullOrWhiteSpace(p.ProtonMailboxPassword)) args.AddRange(new[] { "mailbox_password", p.ProtonMailboxPassword });
+                break;
+
+            case ProviderType.Seafile:
+                args.AddRange(new[] { "url", p.Url, "user", p.Username, "pass", p.Password });
+                if (!string.IsNullOrWhiteSpace(p.SeafileLibrary)) args.AddRange(new[] { "library", p.SeafileLibrary });
+                break;
+
+            case ProviderType.Storj:
+                // "existing" (a pre-generated access grant) is the only non-interactive
+                // path we expose - the alternative ("new", from satellite+API key) needs
+                // rclone to mint the grant itself, which isn't worth a second UI mode here.
+                args.AddRange(new[] { "provider", "existing", "access_grant", p.StorjAccessGrant });
+                break;
+
+            case ProviderType.Swift:
+                args.AddRange(new[] { "env_auth", "false", "user", p.Username, "key", p.Password, "auth", p.Url });
+                if (!string.IsNullOrWhiteSpace(p.SwiftTenant)) args.AddRange(new[] { "tenant", p.SwiftTenant });
+                break;
+
+            case ProviderType.Koofr:
+                args.AddRange(new[] { "provider", string.IsNullOrWhiteSpace(p.KoofrProvider) ? "koofr" : p.KoofrProvider, "user", p.Username, "password", p.Password });
+                if (string.Equals(p.KoofrProvider, "other", StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.KoofrEndpoint))
+                    args.AddRange(new[] { "endpoint", p.KoofrEndpoint });
+                break;
+
+            case ProviderType.Http:
+                args.AddRange(new[] { "url", p.Url });
                 break;
         }
 

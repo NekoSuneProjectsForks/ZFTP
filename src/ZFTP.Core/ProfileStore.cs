@@ -77,6 +77,7 @@ public static class ProfileStore
         public ProviderType Provider { get; set; } = ProviderType.Sftp;
         public string Color { get; set; } = "#2D7DD2";
         public string Url { get; set; } = "";
+        public WebDavVendor WebDavVendor { get; set; } = WebDavVendor.Other;
         public string S3AccessKey { get; set; } = "";
         public string S3SecretEnc { get; set; } = "";   // DPAPI ciphertext (base64)
         public string S3Region { get; set; } = "";
@@ -94,6 +95,13 @@ public static class ProfileStore
         public string ProtonMailboxPasswordEnc { get; set; } = "";   // DPAPI ciphertext (base64)
         public string ClientId { get; set; } = "";
         public string ClientSecretEnc { get; set; } = "";
+        public string SeafileLibrary { get; set; } = "";
+        public string StorjAccessGrantEnc { get; set; } = "";  // DPAPI ciphertext (base64)
+        public string SwiftTenant { get; set; } = "";
+        public string SwiftContainer { get; set; } = "";
+        public string KoofrProvider { get; set; } = "koofr";
+        public string KoofrEndpoint { get; set; } = "";
+        public string GcsBucket { get; set; } = "";
     }
 
     public static void Save(IEnumerable<ConnectionProfile> profiles)
@@ -122,6 +130,7 @@ public static class ProfileStore
             Provider = p.Provider,
             Color = p.Color,
             Url = p.Url,
+            WebDavVendor = p.WebDavVendor,
             S3AccessKey = p.S3AccessKey,
             S3SecretEnc = Encrypt(p.S3Secret),
             S3Region = p.S3Region,
@@ -139,6 +148,13 @@ public static class ProfileStore
             ProtonMailboxPasswordEnc = Encrypt(p.ProtonMailboxPassword),
             ClientId = p.ClientId,
             ClientSecretEnc = Encrypt(p.ClientSecret),
+            SeafileLibrary = p.SeafileLibrary,
+            StorjAccessGrantEnc = Encrypt(p.StorjAccessGrant),
+            SwiftTenant = p.SwiftTenant,
+            SwiftContainer = p.SwiftContainer,
+            KoofrProvider = p.KoofrProvider,
+            KoofrEndpoint = p.KoofrEndpoint,
+            GcsBucket = p.GcsBucket,
         }).ToList();
 
         var json = JsonSerializer.Serialize(stored, new JsonSerializerOptions { WriteIndented = true });
@@ -176,6 +192,7 @@ public static class ProfileStore
                 Provider = s.Provider,
                 Color = string.IsNullOrWhiteSpace(s.Color) ? "#2D7DD2" : s.Color,
                 Url = s.Url,
+                WebDavVendor = s.WebDavVendor,
                 S3AccessKey = s.S3AccessKey,
                 S3Secret = Decrypt(s.S3SecretEnc),
                 S3Region = s.S3Region,
@@ -193,6 +210,13 @@ public static class ProfileStore
                 ProtonMailboxPassword = Decrypt(s.ProtonMailboxPasswordEnc),
                 ClientId = s.ClientId,
                 ClientSecret = Decrypt(s.ClientSecretEnc),
+                SeafileLibrary = s.SeafileLibrary,
+                StorjAccessGrant = Decrypt(s.StorjAccessGrantEnc),
+                SwiftTenant = s.SwiftTenant,
+                SwiftContainer = s.SwiftContainer,
+                KoofrProvider = string.IsNullOrWhiteSpace(s.KoofrProvider) ? "koofr" : s.KoofrProvider,
+                KoofrEndpoint = s.KoofrEndpoint,
+                GcsBucket = s.GcsBucket,
             }).ToList();
         }
         catch

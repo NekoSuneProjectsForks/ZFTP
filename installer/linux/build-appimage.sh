@@ -37,6 +37,10 @@ dotnet publish "$ROOT_DIR/src/ZFTP.Daemon/ZFTP.Daemon.csproj" \
     -c Release -f net8.0 -r "$RID" --self-contained true \
     -o "$APPDIR/usr/bin"
 
+echo "==> Bundling rclone"
+RCLONE_ARCH="amd64"; [ "$RID" = "linux-arm64" ] && RCLONE_ARCH="arm64"
+"$ROOT_DIR/installer/download-rclone.sh" linux "$RCLONE_ARCH" "$APPDIR/usr/bin"
+
 echo "==> Assembling AppDir"
 mkdir -p "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 cp "$ROOT_DIR/installer/linux/zftp.desktop" "$APPDIR/usr/share/applications/zftp.desktop"

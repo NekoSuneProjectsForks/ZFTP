@@ -19,12 +19,19 @@ public partial class EditDriveWindow : Window
 {
     public ConnectionProfile Result { get; }
 
-    // TypeCombo index <-> ProviderType
+    // TypeCombo index <-> ProviderType. Order here is purely UI grouping (unlike
+    // the ProviderType enum itself, this array isn't persisted, so it's free to
+    // be reordered/extended anywhere) - it must match the ComboBoxItems in
+    // EditDriveWindow.axaml 1:1, in the same order.
     private static readonly ProviderType[] ProviderOrder =
     {
-        ProviderType.Sftp, ProviderType.Ftp, ProviderType.Ftps, ProviderType.WebDav,
-        ProviderType.S3, ProviderType.GoogleDrive, ProviderType.Dropbox,
+        ProviderType.Sftp, ProviderType.Ftp, ProviderType.Ftps, ProviderType.WebDav, ProviderType.Http,
+        ProviderType.S3, ProviderType.Swift,
+        ProviderType.GoogleDrive, ProviderType.GoogleCloudStorage, ProviderType.Dropbox,
         ProviderType.OneDrive, ProviderType.Box,
+        ProviderType.PCloud, ProviderType.Yandex, ProviderType.PremiumizeMe, ProviderType.PutIo,
+        ProviderType.HiDrive, ProviderType.Jottacloud,
+        ProviderType.Koofr, ProviderType.Seafile, ProviderType.Storj,
         ProviderType.Smb, ProviderType.B2, ProviderType.Azure, ProviderType.Mega, ProviderType.Proton,
         ProviderType.Android, ProviderType.IPhone,
     };
@@ -85,6 +92,7 @@ public partial class EditDriveWindow : Window
         PortBox.Text = p.Port.ToString();
         UserBox.Text = p.Username;
         UrlBox.Text = p.Url;
+        WebDavVendorCombo.SelectedIndex = (int)p.WebDavVendor;
         AuthCombo.SelectedIndex = p.Auth == AuthMethod.PrivateKey ? 1 : 0;
         PasswordBox.Text = p.Password;
         KeyPathBox.Text = p.KeyPath;
@@ -106,6 +114,18 @@ public partial class EditDriveWindow : Window
         ProtonMailboxPasswordBox.Text = p.ProtonMailboxPassword;
         ClientIdBox.Text = p.ClientId;
         ClientSecretBox.Text = p.ClientSecret;
+        SeafileLibraryBox.Text = p.SeafileLibrary;
+        StorjAccessGrantBox.Text = p.StorjAccessGrant;
+        SwiftTenantBox.Text = p.SwiftTenant;
+        SwiftContainerBox.Text = p.SwiftContainer;
+        KoofrProviderCombo.SelectedIndex = p.KoofrProvider?.ToLowerInvariant() switch
+        {
+            "digistorage" => 1,
+            "other" => 2,
+            _ => 0,
+        };
+        KoofrEndpointBox.Text = p.KoofrEndpoint;
+        GcsBucketBox.Text = p.GcsBucket;
         RootBox.Text = string.IsNullOrEmpty(p.RemoteRoot) ? "/" : p.RemoteRoot;
         EnabledToggle.IsChecked = p.Enabled;
         AutoMountToggle.IsChecked = p.AutoMount;
@@ -160,25 +180,40 @@ public partial class EditDriveWindow : Window
         bool sftp = pt == ProviderType.Sftp;
         bool ftpish = pt is ProviderType.Ftp or ProviderType.Ftps;
         bool webdav = pt == ProviderType.WebDav;
+        bool http = pt == ProviderType.Http;
         bool s3 = pt == ProviderType.S3;
+        bool swift = pt == ProviderType.Swift;
         bool smb = pt == ProviderType.Smb;
         bool b2 = pt == ProviderType.B2;
         bool azure = pt == ProviderType.Azure;
         bool mega = pt == ProviderType.Mega;
         bool proton = pt == ProviderType.Proton;
+        bool seafile = pt == ProviderType.Seafile;
+        bool storj = pt == ProviderType.Storj;
+        bool koofr = pt == ProviderType.Koofr;
+        bool gcs = pt == ProviderType.GoogleCloudStorage;
         bool oauth = RcloneService.RequiresOAuth(pt);
         bool android = pt == ProviderType.Android;
         bool apple = pt == ProviderType.IPhone;
 
         HostPanel.IsVisible = sftp || ftpish || smb;
-        UrlPanel.IsVisible = webdav;
-        UserPanel.IsVisible = sftp || ftpish || webdav || smb || mega || proton;
+        UrlPanel.IsVisible = webdav || http || swift || seafile;
+        WebDavVendorRow.IsVisible = webdav;
+        UpdateUrlLabel(pt);
+        if (webdav) UpdateWebDavHint();
+        UserPanel.IsVisible = sftp || ftpish || webdav || smb || mega || proton || seafile || swift || koofr;
         AuthPanel.IsVisible = sftp;
         S3Panel.IsVisible = s3;
         SmbPanel.IsVisible = smb;
         B2Panel.IsVisible = b2;
         AzurePanel.IsVisible = azure;
         ProtonPanel.IsVisible = proton;
+        SeafilePanel.IsVisible = seafile;
+        StorjPanel.IsVisible = storj;
+        SwiftPanel.IsVisible = swift;
+        KoofrPanel.IsVisible = koofr;
+        if (koofr) UpdateKoofrEndpointVisibility();
+        GcsPanel.IsVisible = gcs;
         OAuthPanel.IsVisible = oauth;
         AndroidPanel.IsVisible = android;
         ApplePanel.IsVisible = apple;
@@ -187,16 +222,88 @@ public partial class EditDriveWindow : Window
         if (android) LoadDevices(Result.DeviceSerial);
         if (apple) LoadAppleDevices(Result.DeviceSerial);
 
+        // rclone's http backend can't upload/delete - there's nothing to write to.
+        AccessCombo.IsEnabled = !http;
+        if (http) AccessCombo.SelectedIndex = 1;
+
         if (sftp)
             UpdateAuthVisibility();
         else
         {
             KeyPanel.IsVisible = false;
-            PasswordPanel.IsVisible = ftpish || webdav || smb || mega || proton;
+            PasswordPanel.IsVisible = ftpish || webdav || smb || mega || proton || seafile || swift || koofr;
+            PasswordFieldLabel.Text = swift ? "API key / password" : koofr ? "App-specific password" : "Password";
         }
     }
 
+    /// <summary>The URL field is shared by several providers with different meanings
+    /// (WebDAV server, HTTP directory, Swift's Keystone auth URL, Seafile server) -
+    /// keep its label and watermark honest about which one is expected.</summary>
+    private void UpdateUrlLabel(ProviderType pt)
+    {
+        switch (pt)
+        {
+            case ProviderType.Http:
+                UrlFieldLabel.Text = "Directory URL";
+                UrlBox.Watermark = "https://example.com/files/";
+                UrlHintText.Text = "";
+                break;
+            case ProviderType.Swift:
+                UrlFieldLabel.Text = "Auth URL (Keystone)";
+                UrlBox.Watermark = "https://auth.cloud.ovh.net/v3";
+                UrlHintText.Text = "";
+                break;
+            case ProviderType.Seafile:
+                UrlFieldLabel.Text = "Server URL";
+                UrlBox.Watermark = "https://cloud.seafile.com/";
+                UrlHintText.Text = "";
+                break;
+            default:
+                UrlFieldLabel.Text = "Server URL";
+                break; // WebDav sets its own watermark/hint via UpdateWebDavHint()
+        }
+    }
+
+    private void KoofrProviderCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateKoofrEndpointVisibility();
+
+    private void UpdateKoofrEndpointVisibility()
+    {
+        if (KoofrEndpointPanel == null) return;
+        KoofrEndpointPanel.IsVisible = KoofrProviderCombo.SelectedIndex == 2; // "Other Koofr-compatible service"
+    }
+
     private void AuthCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateAuthVisibility();
+
+    private void WebDavVendorCombo_SelectionChanged(object? sender, SelectionChangedEventArgs e) => UpdateWebDavHint();
+
+    /// <summary>Nextcloud/ownCloud need the account's real DAV root, not just the
+    /// server's base URL - this hint (and the watermark) shows the actual path they
+    /// need so free space and uploads work instead of silently doing neither.</summary>
+    private void UpdateWebDavHint()
+    {
+        if (UrlHintText == null) return;
+        var vendor = (WebDavVendor)Math.Max(0, WebDavVendorCombo.SelectedIndex);
+        switch (vendor)
+        {
+            case WebDavVendor.Nextcloud:
+                UrlBox.Watermark = "https://cloud.example.com";
+                UrlHintText.Text = "Just the server address is fine - ZFTP appends /remote.php/dav/files/<username>/ " +
+                    "itself, which is what makes free space and uploads work correctly on Nextcloud.";
+                break;
+            case WebDavVendor.OwnCloud:
+                UrlBox.Watermark = "https://cloud.example.com";
+                UrlHintText.Text = "Just the server address is fine - ZFTP appends /remote.php/dav/files/<username>/ itself.";
+                break;
+            case WebDavVendor.Sharepoint:
+                UrlBox.Watermark = "https://yourtenant.sharepoint.com/sites/yoursite";
+                UrlHintText.Text = "Enter the site URL as shown in your browser.";
+                break;
+            default:
+                UrlBox.Watermark = "https://dav.example.com/remote.php/webdav";
+                UrlHintText.Text = "";
+                break;
+        }
+    }
 
     private void UpdateAuthVisibility()
     {
@@ -498,6 +605,18 @@ public partial class EditDriveWindow : Window
         { await Warn("Please enter your Mega account email."); return; }
         if (pt == ProviderType.Proton && string.IsNullOrWhiteSpace(UserBox.Text))
         { await Warn("Please enter your Proton account username."); return; }
+        if (pt == ProviderType.Http && string.IsNullOrWhiteSpace(UrlBox.Text))
+        { await Warn("Please enter the directory URL."); return; }
+        if (pt == ProviderType.Seafile && (string.IsNullOrWhiteSpace(UrlBox.Text) || string.IsNullOrWhiteSpace(UserBox.Text)))
+        { await Warn("Please enter the Seafile server URL and username."); return; }
+        if (pt == ProviderType.Storj && string.IsNullOrWhiteSpace(StorjAccessGrantBox.Text))
+        { await Warn("Please enter a Storj access grant."); return; }
+        if (pt == ProviderType.Swift && (string.IsNullOrWhiteSpace(UrlBox.Text) || string.IsNullOrWhiteSpace(UserBox.Text) || string.IsNullOrWhiteSpace(SwiftContainerBox.Text)))
+        { await Warn("Please enter the auth URL, username, and container."); return; }
+        if (pt == ProviderType.Koofr && (string.IsNullOrWhiteSpace(UserBox.Text) || string.IsNullOrWhiteSpace(PasswordBox.Text)))
+        { await Warn("Please enter your Koofr username and app-specific password."); return; }
+        if (pt == ProviderType.GoogleCloudStorage && string.IsNullOrWhiteSpace(GcsBucketBox.Text))
+        { await Warn("Please enter the Google Cloud Storage bucket."); return; }
 
         ReadInto(Result);
         Close(true);
@@ -514,6 +633,7 @@ public partial class EditDriveWindow : Window
             : 22;
         p.Username = UserBox.Text?.Trim() ?? "";
         p.Url = UrlBox.Text?.Trim() ?? "";
+        p.WebDavVendor = (WebDavVendor)Math.Max(0, WebDavVendorCombo.SelectedIndex);
         p.Auth = AuthCombo.SelectedIndex == 1 ? AuthMethod.PrivateKey : AuthMethod.Password;
         p.Password = PasswordBox.Text ?? "";
         p.KeyPath = KeyPathBox.Text?.Trim() ?? "";
@@ -535,6 +655,18 @@ public partial class EditDriveWindow : Window
         p.ProtonMailboxPassword = ProtonMailboxPasswordBox.Text ?? "";
         p.ClientId = ClientIdBox.Text?.Trim() ?? "";
         p.ClientSecret = ClientSecretBox.Text ?? "";
+        p.SeafileLibrary = SeafileLibraryBox.Text?.Trim() ?? "";
+        p.StorjAccessGrant = StorjAccessGrantBox.Text ?? "";
+        p.SwiftTenant = SwiftTenantBox.Text?.Trim() ?? "";
+        p.SwiftContainer = SwiftContainerBox.Text?.Trim() ?? "";
+        p.KoofrProvider = KoofrProviderCombo.SelectedIndex switch
+        {
+            1 => "digistorage",
+            2 => "other",
+            _ => "koofr",
+        };
+        p.KoofrEndpoint = KoofrEndpointBox.Text?.Trim() ?? "";
+        p.GcsBucket = GcsBucketBox.Text?.Trim() ?? "";
         if (p.Provider == ProviderType.Android) p.DeviceSerial = SelectedDeviceSerial();
         else if (p.Provider == ProviderType.IPhone) p.DeviceSerial = SelectedAppleSerial();
         p.RemoteRoot = string.IsNullOrWhiteSpace(RootBox.Text) ? "/" : RootBox.Text!.Trim();

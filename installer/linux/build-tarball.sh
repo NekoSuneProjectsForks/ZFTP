@@ -24,6 +24,10 @@ dotnet publish "$ROOT_DIR/src/ZFTP.Daemon/ZFTP.Daemon.csproj" \
     -c Release -f net8.0 -r "$RID" --self-contained true -o "$OUT_DIR"
 chmod +x "$OUT_DIR/ZFTP" "$OUT_DIR/zftpd"
 
+echo "==> Bundling rclone"
+RCLONE_ARCH="amd64"; [ "$RID" = "linux-arm64" ] && RCLONE_ARCH="arm64"
+"$ROOT_DIR/installer/download-rclone.sh" linux "$RCLONE_ARCH" "$OUT_DIR"
+
 mkdir -p "$ROOT_DIR/dist"
 OUT="$ROOT_DIR/dist/ZFTP-$VERSION-$RID.tar.gz"
 echo "==> Archiving"

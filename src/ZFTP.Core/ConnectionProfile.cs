@@ -19,6 +19,21 @@ public enum AccessMode
 }
 
 /// <summary>
+/// WebDAV server flavour (Provider == WebDav). rclone's webdav backend needs this
+/// to know the server's quirks - which quota/PROPFIND response shape it returns
+/// and how it wants uploads chunked. Left as "Other" (rclone's generic DAV
+/// handling), Nextcloud/ownCloud servers report the wrong (or no) free space and
+/// can reject uploads that a real Nextcloud/ownCloud vendor setting would allow.
+/// </summary>
+public enum WebDavVendor
+{
+    Other,
+    Nextcloud,
+    OwnCloud,
+    Sharepoint,
+}
+
+/// <summary>
 /// Which kind of storage this drive connects to. SFTP uses ZFTP's own native
 /// engine; everything else is mounted through the bundled rclone engine.
 /// </summary>
@@ -40,6 +55,23 @@ public enum ProviderType
     Proton,        // rclone (Proton Drive)
     Android,       // native engine (adb over USB)
     IPhone,        // native engine (Apple AFC over USB) - LIMITED: photos + file-sharing apps only
+
+    // ---- appended later - Provider is persisted as its plain int value in
+    // drives.json, so new entries must only ever be ADDED HERE AT THE END.
+    // Reordering or inserting earlier would silently reassign every saved
+    // profile after the insertion point to the wrong provider. ----
+    PCloud,             // rclone (browser sign-in)
+    Yandex,             // rclone (browser sign-in)
+    PremiumizeMe,       // rclone (browser sign-in)
+    PutIo,              // rclone (browser sign-in)
+    HiDrive,            // rclone (browser sign-in)
+    Jottacloud,         // rclone (browser sign-in / personal login token)
+    GoogleCloudStorage, // rclone (browser sign-in; bucket-rooted like S3)
+    Seafile,            // rclone (url/user/pass + optional library)
+    Storj,              // rclone (existing access grant)
+    Swift,              // rclone (OpenStack Swift / Rackspace / Memset / OVH; container-rooted)
+    Koofr,              // rclone (Koofr / Digi Storage / Koofr-compatible)
+    Http,               // rclone (read-only HTTP directory listing)
 }
 
 public sealed class ConnectionProfile
@@ -81,6 +113,10 @@ public sealed class ConnectionProfile
     /// <summary>WebDAV server URL, e.g. https://dav.example.com/remote.php/webdav.</summary>
     public string Url { get; set; } = "";
 
+    /// <summary>WebDAV server flavour (Provider == WebDav). Defaults to "Other" for
+    /// backwards compatibility with profiles saved before this setting existed.</summary>
+    public WebDavVendor WebDavVendor { get; set; } = WebDavVendor.Other;
+
     /// <summary>Optional personal OAuth app credentials (cloud drives). Blank = use
     /// rclone's built-in sign-in. Providing your own makes logins permanent.</summary>
     public string ClientId { get; set; } = "";
@@ -117,6 +153,29 @@ public sealed class ConnectionProfile
     public string ProtonTwoFactorCode { get; set; } = "";
     public string ProtonMailboxPassword { get; set; } = "";
 
+    /// <summary>Seafile library/repo to mount (Provider == Seafile). Blank = every
+    /// non-encrypted library the account can see. Uses Url/Username/Password above.</summary>
+    public string SeafileLibrary { get; set; } = "";
+
+    /// <summary>A pre-generated Storj access grant (Provider == Storj) - the simplest
+    /// of Storj's auth options, so it's the only one exposed here.</summary>
+    public string StorjAccessGrant { get; set; } = "";
+
+    /// <summary>OpenStack Swift (Provider == Swift). Uses Username as "user", Password
+    /// as "key" (API key/password), and Url as the Keystone auth URL.</summary>
+    public string SwiftTenant { get; set; } = "";
+    public string SwiftContainer { get; set; } = "";
+
+    /// <summary>Koofr / Digi Storage / other Koofr-compatible service (Provider ==
+    /// Koofr). "koofr" or "digistorage" need nothing else; "other" also needs
+    /// Endpoint. Uses Username + Password (an app-specific password, not the
+    /// account password - Koofr generates one under its own security settings).</summary>
+    public string KoofrProvider { get; set; } = "koofr";
+    public string KoofrEndpoint { get; set; } = "";
+
+    /// <summary>Google Cloud Storage bucket to mount (Provider == GoogleCloudStorage).</summary>
+    public string GcsBucket { get; set; } = "";
+
     /// <summary>ADB serial of the chosen Android device (Provider == Android). Blank
     /// means "use the only connected device" and is resolved at mount time.</summary>
     public string DeviceSerial { get; set; } = "";
@@ -148,12 +207,16 @@ public sealed class ConnectionProfile
         DeviceSerial = o.DeviceSerial;
         RemoteRoot = o.RemoteRoot; DriveLetter = o.DriveLetter; MountPath = o.MountPath; Enabled = o.Enabled; AutoMount = o.AutoMount;
         Access = o.Access; Provider = o.Provider; Color = o.Color;
-        Url = o.Url; S3AccessKey = o.S3AccessKey; S3Secret = o.S3Secret;
+        Url = o.Url; WebDavVendor = o.WebDavVendor; S3AccessKey = o.S3AccessKey; S3Secret = o.S3Secret;
         S3Region = o.S3Region; S3Endpoint = o.S3Endpoint; S3Bucket = o.S3Bucket;
         SmbShare = o.SmbShare; SmbDomain = o.SmbDomain;
         B2AccountId = o.B2AccountId; B2ApplicationKey = o.B2ApplicationKey; B2Bucket = o.B2Bucket;
         AzureAccount = o.AzureAccount; AzureKey = o.AzureKey; AzureContainer = o.AzureContainer;
         ProtonTwoFactorCode = o.ProtonTwoFactorCode; ProtonMailboxPassword = o.ProtonMailboxPassword;
         ClientId = o.ClientId; ClientSecret = o.ClientSecret;
+        SeafileLibrary = o.SeafileLibrary; StorjAccessGrant = o.StorjAccessGrant;
+        SwiftTenant = o.SwiftTenant; SwiftContainer = o.SwiftContainer;
+        KoofrProvider = o.KoofrProvider; KoofrEndpoint = o.KoofrEndpoint;
+        GcsBucket = o.GcsBucket;
     }
 }

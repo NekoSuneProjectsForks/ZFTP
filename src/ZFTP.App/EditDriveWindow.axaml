@@ -17,11 +17,23 @@
                     <ComboBoxItem Content="FTP" />
                     <ComboBoxItem Content="FTP over TLS (FTPS)" />
                     <ComboBoxItem Content="WebDAV" />
+                    <ComboBoxItem Content="HTTP (read-only)" />
                     <ComboBoxItem Content="Amazon S3 / compatible" />
+                    <ComboBoxItem Content="OpenStack Swift" />
                     <ComboBoxItem Content="Google Drive" />
+                    <ComboBoxItem Content="Google Cloud Storage" />
                     <ComboBoxItem Content="Dropbox" />
                     <ComboBoxItem Content="OneDrive" />
                     <ComboBoxItem Content="Box" />
+                    <ComboBoxItem Content="pCloud" />
+                    <ComboBoxItem Content="Yandex Disk" />
+                    <ComboBoxItem Content="premiumize.me" />
+                    <ComboBoxItem Content="Put.io" />
+                    <ComboBoxItem Content="HiDrive" />
+                    <ComboBoxItem Content="Jottacloud" />
+                    <ComboBoxItem Content="Koofr / Digi Storage" />
+                    <ComboBoxItem Content="Seafile" />
+                    <ComboBoxItem Content="Storj" />
                     <ComboBoxItem Content="SMB / Windows network share" />
                     <ComboBoxItem Content="Backblaze B2" />
                     <ComboBoxItem Content="Microsoft Azure Blob Storage" />
@@ -48,13 +60,23 @@
                     </Grid>
                 </StackPanel>
 
-                <!-- WebDAV URL -->
+                <!-- Server URL (WebDAV/HTTP/OpenStack Swift auth URL/Seafile) -->
                 <StackPanel x:Name="UrlPanel" IsVisible="False">
-                    <TextBlock Text="Server URL" Margin="0,0,0,4" />
-                    <TextBox x:Name="UrlBox" Watermark="https://dav.example.com/remote.php/webdav" Margin="0,0,0,14" />
+                    <StackPanel x:Name="WebDavVendorRow">
+                        <TextBlock Text="Server type" Margin="0,0,0,4" />
+                        <ComboBox x:Name="WebDavVendorCombo" Margin="0,0,0,14" SelectionChanged="WebDavVendorCombo_SelectionChanged" HorizontalAlignment="Stretch">
+                            <ComboBoxItem Content="Generic / other WebDAV" />
+                            <ComboBoxItem Content="Nextcloud" />
+                            <ComboBoxItem Content="ownCloud" />
+                            <ComboBoxItem Content="SharePoint (Office 365)" />
+                        </ComboBox>
+                    </StackPanel>
+                    <TextBlock x:Name="UrlFieldLabel" Text="Server URL" Margin="0,0,0,4" />
+                    <TextBox x:Name="UrlBox" Watermark="https://dav.example.com/remote.php/webdav" Margin="0,0,0,4" />
+                    <TextBlock x:Name="UrlHintText" Margin="0,0,0,14" FontSize="11" Opacity="0.7" TextWrapping="Wrap" />
                 </StackPanel>
 
-                <!-- Username (SFTP/FTP/FTPS/WebDAV/SMB/Mega/Proton) -->
+                <!-- Username (SFTP/FTP/FTPS/WebDAV/SMB/Mega/Proton/Seafile/Swift/Koofr) -->
                 <StackPanel x:Name="UserPanel">
                     <TextBlock Text="Username" Margin="0,0,0,4" />
                     <TextBox x:Name="UserBox" Watermark="Username" Margin="0,0,0,14" />
@@ -71,9 +93,9 @@
                               Content="Forget saved server key (re-trust on next connect)" />
                 </StackPanel>
 
-                <!-- Password (SFTP/FTP/FTPS/WebDAV/SMB/Mega/Proton) -->
+                <!-- Password (SFTP/FTP/FTPS/WebDAV/SMB/Mega/Proton/Seafile/Swift/Koofr) -->
                 <StackPanel x:Name="PasswordPanel">
-                    <TextBlock Text="Password" Margin="0,0,0,4" />
+                    <TextBlock x:Name="PasswordFieldLabel" Text="Password" Margin="0,0,0,4" />
                     <TextBox x:Name="PasswordBox" PasswordChar="●" Margin="0,0,0,14" />
                 </StackPanel>
 
@@ -142,6 +164,48 @@
                     <TextBox x:Name="ProtonTwoFactorBox" Watermark="123456" Margin="0,0,0,14" />
                     <TextBlock Text="Mailbox password (only for two-password accounts)" Margin="0,0,0,4" />
                     <TextBox x:Name="ProtonMailboxPasswordBox" PasswordChar="●" Margin="0,0,0,14" />
+                </StackPanel>
+
+                <!-- Seafile library -->
+                <StackPanel x:Name="SeafilePanel" IsVisible="False">
+                    <TextBlock Text="Library (optional - blank = all non-encrypted libraries)" Margin="0,0,0,4" />
+                    <TextBox x:Name="SeafileLibraryBox" Margin="0,0,0,14" />
+                </StackPanel>
+
+                <!-- Storj -->
+                <StackPanel x:Name="StorjPanel" IsVisible="False">
+                    <TextBlock Text="Access grant" Margin="0,0,0,4" />
+                    <TextBox x:Name="StorjAccessGrantBox" PasswordChar="●" Margin="0,0,0,14" />
+                </StackPanel>
+
+                <!-- OpenStack Swift -->
+                <StackPanel x:Name="SwiftPanel" IsVisible="False">
+                    <TextBlock Text="Tenant (optional)" Margin="0,0,0,4" />
+                    <TextBox x:Name="SwiftTenantBox" Margin="0,0,0,14" />
+                    <TextBlock Text="Container" Margin="0,0,0,4" />
+                    <TextBox x:Name="SwiftContainerBox" Margin="0,0,0,14" />
+                </StackPanel>
+
+                <!-- Koofr / Digi Storage -->
+                <StackPanel x:Name="KoofrPanel" IsVisible="False">
+                    <TextBlock Text="Service" Margin="0,0,0,4" />
+                    <ComboBox x:Name="KoofrProviderCombo" Margin="0,0,0,14" SelectionChanged="KoofrProviderCombo_SelectionChanged" HorizontalAlignment="Stretch">
+                        <ComboBoxItem Content="Koofr" />
+                        <ComboBoxItem Content="Digi Storage" />
+                        <ComboBoxItem Content="Other Koofr-compatible service" />
+                    </ComboBox>
+                    <StackPanel x:Name="KoofrEndpointPanel" IsVisible="False">
+                        <TextBlock Text="API endpoint" Margin="0,0,0,4" />
+                        <TextBox x:Name="KoofrEndpointBox" Margin="0,0,0,14" />
+                    </StackPanel>
+                    <TextBlock Opacity="0.7" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,14"
+                               Text="Use an app-specific password from your account's security settings, not your normal login password." />
+                </StackPanel>
+
+                <!-- Google Cloud Storage bucket -->
+                <StackPanel x:Name="GcsPanel" IsVisible="False">
+                    <TextBlock Text="Bucket" Margin="0,0,0,4" />
+                    <TextBox x:Name="GcsBucketBox" Margin="0,0,0,14" />
                 </StackPanel>
 
                 <!-- OAuth cloud drives -->

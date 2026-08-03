@@ -14,9 +14,9 @@
     <RuntimeIdentifiers>win-x64;linux-x64;linux-arm64;osx-x64;osx-arm64</RuntimeIdentifiers>
     <SelfContained>false</SelfContained>
     <DefineConstants Condition="'$(TargetFramework)'=='net8.0-windows'">$(DefineConstants);WINDOWS</DefineConstants>
-    <Version>2.6.1</Version>
-    <FileVersion>2.6.1.0</FileVersion>
-    <AssemblyVersion>2.6.1.0</AssemblyVersion>
+    <Version>2.7.0</Version>
+    <FileVersion>2.7.0.0</FileVersion>
+    <AssemblyVersion>2.7.0.0</AssemblyVersion>
     <Company>ZFTP</Company>
     <Product>ZFTP</Product>
   </PropertyGroup>
